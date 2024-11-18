@@ -295,7 +295,7 @@ public class OscillatorPointCloud : MonoBehaviour
         Text labelText = labelObj.AddComponent<Text>();
         labelText.text = label;
         labelText.color = Color.white;
-        labelText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        labelText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         labelText.alignment = TextAnchor.MiddleLeft;
         RectTransform labelRect = labelObj.GetComponent<RectTransform>();
         labelRect.sizeDelta = new Vector2(100, 20);
@@ -309,7 +309,7 @@ public class OscillatorPointCloud : MonoBehaviour
         valueObj.transform.SetParent(sliderObj.transform, false);
         Text valueText = valueObj.AddComponent<Text>();
         valueText.color = Color.white;
-        valueText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        valueText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         valueText.alignment = TextAnchor.MiddleRight;
         RectTransform valueRect = valueObj.GetComponent<RectTransform>();
         valueRect.sizeDelta = new Vector2(50, 20);
@@ -419,7 +419,7 @@ public class OscillatorPointCloud : MonoBehaviour
         Text buttonText = textObj.AddComponent<Text>();
         buttonText.text = label;
         buttonText.color = Color.white;
-        buttonText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        buttonText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         buttonText.alignment = TextAnchor.MiddleCenter;
         RectTransform textRect = textObj.GetComponent<RectTransform>();
         textRect.sizeDelta = new Vector2(200, 40);
