@@ -108,6 +108,32 @@ public class OscillatorPointCloud : MonoBehaviour
     private ParticleSystem particleSystem;    // Handles point rendering
     private ParticleSystem.Particle[] particles;  // Array of point particles
 
+
+    //============================================================================================
+    //  MUSICAL SCALE SETTINGS 
+    //============================================================================================
+
+    [Header("Musical Scale Settings")]
+    [SerializeField] private float baseFrequency = 440f; // A4
+    private float[] majorScaleRatios = new float[] {
+        1.0f,       // Root (A4)
+        1.125f,     // Major Second (B4)
+        1.25f,      // Major Third (C#4)
+        1.333f,     // Perfect Fourth (D4)
+        1.5f,       // Perfect Fifth (E4)
+        1.667f,     // Major Sixth (F#4)
+        1.875f,     // Major Seventh (G#4)
+        2.0f,       // Octave (A5)
+        2.25f,      // Major Second (B5)
+        2.5f,       // Major Third (C#5)
+        2.667f,     // Perfect Fourth (D5)
+        3.0f,       // Perfect Fifth (E5)
+        3.333f,     // Major Sixth (F#5)
+        3.75f,      // Major Seventh (G#5)
+        4.0f        // Two Octaves Up (A6)
+    };
+
+
     //============================================================================================
     //  CLOUD CONFIGURATION
     //============================================================================================
@@ -164,39 +190,41 @@ public class OscillatorPointCloud : MonoBehaviour
 
     void Update()
     {
-        if (!isTransitioning || oscillators == null) return;
-
-        float elapsed = Time.time - transitionStartTime;
-        float progress = Mathf.Clamp01(elapsed / transitionTime);  // Added clamp
-
-        if (progress >= 1f)
+        if (isTransitioning)
         {
-            progress = 1f;
-            isTransitioning = false;
+            float elapsed = Time.time - transitionStartTime;
+            float progress = elapsed / transitionTime;
+
+            if (progress >= 1f)
+            {
+                progress = 1f;
+                isTransitioning = false;
+            }
+
+            foreach (var oscillator in oscillators)
+            {
+                oscillator.transitionProgress = progress;
+                
+                // Position interpolation
+                oscillator.position = Vector3.Lerp(
+                    oscillator.startPosition,
+                    oscillator.targetPosition,
+                    progress
+                );
+
+                // Frequency interpolation
+                oscillator.frequency = Mathf.Lerp(
+                    oscillator.startFrequency,
+                    oscillator.targetFrequency,
+                    progress
+                );
+
+                // Update audio source position
+                oscillator.audioSource.transform.position = oscillator.position;
+            }
+
+            UpdateParticles();
         }
-
-        // Update positions and frequencies
-        foreach (var oscillator in oscillators)
-        {
-            oscillator.transitionProgress = progress;
-            oscillator.position = Vector3.Lerp(
-                oscillator.startPosition,
-                oscillator.targetPosition,
-                progress
-            );
-
-            // Update frequency with smooth transition
-            oscillator.frequency = Mathf.Lerp(
-                oscillator.startFrequency,
-                oscillator.targetFrequency,
-                progress
-            );
-
-            // Update game object position for spatial audio
-            oscillator.audioSource.transform.position = oscillator.position;
-        }
-
-        UpdateParticles();
     }
 
     //============================================================================================
@@ -669,7 +697,30 @@ public class OscillatorPointCloud : MonoBehaviour
     private float GetFrequencyForHeight(float yPosition)
     {
         float normalizedHeight = (yPosition + spaceSize) / (2 * spaceSize);
-        return Mathf.Lerp(minFrequency, maxFrequency, normalizedHeight);
+        // Map height to frequency range
+        float continuousFreq = Mathf.Lerp(minFrequency, maxFrequency, normalizedHeight);
+        // Snap to nearest scale frequency
+        return GetNearestScaleFrequency(continuousFreq);
+    }
+
+    // Add the new method here
+    private float GetNearestScaleFrequency(float frequency)
+    {
+        float minDiff = float.MaxValue;
+        float closestFreq = baseFrequency;
+        
+        foreach (float ratio in majorScaleRatios)
+        {
+            float scaleFreq = baseFrequency * ratio;
+            float diff = Mathf.Abs(frequency - scaleFreq);
+            if (diff < minDiff)
+            {
+                minDiff = diff;
+                closestFreq = scaleFreq;
+            }
+        }
+        
+        return closestFreq;
     }
 
     void OnDrawGizmosSelected()
@@ -688,16 +739,16 @@ public class OscillatorPointCloud : MonoBehaviour
     //============================================================================================
     public void RandomizeCloud()
     {
-        if (oscillators == null) return;
-        
         foreach (var oscillator in oscillators)
         {
-            if (oscillator?.audioSource == null) continue;  // Added null check
-            
             oscillator.startPosition = oscillator.position;
             oscillator.targetPosition = GetRandomPosition();
+            
+            // Start from current frequency
             oscillator.startFrequency = oscillator.frequency;
+            // Target the nearest scale frequency for the new position
             oscillator.targetFrequency = GetFrequencyForHeight(oscillator.targetPosition.y);
+            
             oscillator.transitionProgress = 0f;
         }
 
