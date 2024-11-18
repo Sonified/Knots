@@ -488,12 +488,21 @@ public class OscillatorPointCloud : MonoBehaviour
 
     private void CreateParticleMaterial()
     {
-        // For Meta Quest compatibility
-        particleMaterial = new Material(Shader.Find("Universal Render Pipeline/Particles/Unlit"));
-        if (particleMaterial.shader == null) {
-            Debug.LogWarning("URP Particle shader not found, using fallback");
-            particleMaterial = new Material(Shader.Find("Particles/Standard Unlit"));
+        // Try standard particle shader first
+        particleMaterial = new Material(Shader.Find("Particles/Standard Unlit"));
+        if (particleMaterial.shader == null)
+        {
+            Debug.LogWarning("Standard particle shader not found, using Universal Render Pipeline shader");
+            particleMaterial = new Material(Shader.Find("Universal Render Pipeline/Particles/Unlit"));
         }
+        
+        // If both shaders fail, use a basic unlit shader as fallback
+        if (particleMaterial.shader == null)
+        {
+            Debug.LogWarning("All particle shaders failed, using basic unlit shader");
+            particleMaterial = new Material(Shader.Find("Unlit/Color"));
+        }
+        
         particleMaterial.SetFloat("_Mode", 0);
         particleMaterial.enableInstancing = true;
     }
