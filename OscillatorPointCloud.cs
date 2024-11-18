@@ -618,10 +618,9 @@ public class OscillatorPointCloud : MonoBehaviour
         source.enabled = true;
         source.outputAudioMixerGroup = audioSettings.outputMixerGroup;
         
-        // Meta XR Audio settings
+        // Spatial audio settings
         source.spatialBlend = 1f;
         source.spatialize = true;
-        source.spatializePostEffects = true;
         source.minDistance = audioSettings.minDistance;
         source.maxDistance = audioSettings.maxDistance;
         source.rolloffMode = AudioRolloffMode.Custom;
@@ -634,12 +633,6 @@ public class OscillatorPointCloud : MonoBehaviour
         source.bypassEffects = false;
         source.bypassListenerEffects = false;
         source.bypassReverbZones = false;
-
-        // Only set spatializer if available
-        if (audioSettings.useMetaXRAudio && AudioSettings.GetSpatializerPluginNames().Contains("Meta XR Audio"))
-        {
-            source.spatializerName = "Meta XR Audio";
-        }
     }
 
     //============================================================================================
