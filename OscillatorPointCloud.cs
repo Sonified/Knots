@@ -711,24 +711,29 @@ public class OscillatorPointCloud : MonoBehaviour
 public class OscillatorFilter : MonoBehaviour
 {
     public OscillatorPointCloud.OscillatorPoint oscillator;
+    private float sampleRate;
+
+    void Start()
+    {
+        // Cache the sample rate on the main thread
+        sampleRate = AudioSettings.outputSampleRate;
+    }
 
     void OnAudioFilterRead(float[] data, int channels)
     {
-        if (oscillator == null)
+        if (oscillator == null || sampleRate == 0)
             return;
 
-        double increment = oscillator.frequency * 2.0 * Mathf.PI / AudioSettings.outputSampleRate;
+        double increment = oscillator.frequency * 2.0 * Mathf.PI / sampleRate;
 
         for (int i = 0; i < data.Length; i += channels)
         {
-            // Generate sine wave
             oscillator.phase += increment;
             if (oscillator.phase > 2 * Mathf.PI)
                 oscillator.phase -= 2 * Mathf.PI;
 
             float sample = (float)(oscillator.amplitude * Mathf.Sin((float)oscillator.phase));
 
-            // Copy to all channels
             for (int channel = 0; channel < channels; channel++)
             {
                 data[i + channel] = sample;
