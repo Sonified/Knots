@@ -44,6 +44,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using UnityEngine.UI;
+using UnityEngine.Audio; // For AudioMixerGroup
 
 public class OscillatorPointCloud : MonoBehaviour
 {
@@ -58,11 +59,42 @@ public class OscillatorPointCloud : MonoBehaviour
         public Vector3 targetPosition;    // Position to move towards
         public Vector3 startPosition;     // Position to move from
         public float frequency;           // Current frequency in Hz
+        public float targetFrequency;     // Target frequency to smoothly transition to
+        public float startFrequency;      // Starting frequency for transitions
         public float amplitude;           // Volume multiplier (0-1)
         public AudioSource audioSource;   // Unity audio source component
         public double phase;              // Current phase of oscillator
         public ParticleSystem.Particle particle;  // Visual representation
         public float transitionProgress;  // 0 to 1 for position lerping
+    }
+    [System.Serializable]
+    public class AudioSettings
+    {
+        [Range(0f, 1f)] public float defaultAmplitude = 0.5f;
+        [Range(0f, 1f)] public float masterVolume = 0.5f;
+        [Range(0f, 1f)] public float spatialBlend = 1f;
+        [Range(0f, 1f)] public float spread = 1f;
+        [Range(0f, 1f)] public float dopplerLevel = 0f;
+        
+        [Header("Meta XR Audio Settings")]
+        public bool useMetaXRAudio = true;
+        public float reverbZoneMix = 1.0f;
+        
+        [Header("Distance Settings")]
+        [Tooltip("Distance where volume starts decreasing")]
+        public float minDistance = 1f;
+        [Tooltip("Distance where volume reaches zero")]
+        public float maxDistance = 10f;
+        
+        [Header("Advanced Settings")]
+        public AnimationCurve falloffCurve;
+        public bool useCustomRolloff = true;
+        public AudioMixerGroup outputMixerGroup;
+
+        public AudioSettings()
+        {
+            falloffCurve = AnimationCurve.Linear(0, 1, 1, 0);
+        }
     }
 
     //============================================================================================
@@ -86,24 +118,13 @@ public class OscillatorPointCloud : MonoBehaviour
     [Range(20f, 2000f)] public float maxFrequency = 2000f; // Highest frequency
     [Range(1, 255)] public int numberOfPoints = 100;      // Number of points
     [Range(0.1f, 5f)] public float transitionTime = 1f;   // Animation duration
-    [Range(0f, 1f)] public float masterVolume = 0.5f;     // Overall volume
 
     //============================================================================================
     //  SPATIAL AUDIO SETTINGS
     //============================================================================================
 
-    [Header("Spatial Audio Settings")]
-    [Range(0, 1)]
-    public float spatialBlend = 1f;    // 1 = fully 3D spatial audio
-
-    [Tooltip("Distance where volume starts decreasing")]
-    public float minDistance = 1f;     // Points closer than this maintain full volume
-
-    [Tooltip("Distance where volume reaches zero")]
-    public float maxDistance = 10f;    // Points further than this will be silent
-
-    [Tooltip("How volume decreases with distance")]
-    private AnimationCurve falloffCurve = AnimationCurve.Linear(0, 1, 1, 0);  // Volume rolloff
+    [Header("Audio Configuration")]
+    public AudioSettings audioSettings = new AudioSettings();
 
     private List<OscillatorPoint> oscillators = new List<OscillatorPoint>();
     private bool isTransitioning = false;
@@ -129,8 +150,13 @@ public class OscillatorPointCloud : MonoBehaviour
 
     void Start()
     {
-        SetupParticleSystem();
+        if (audioSettings == null)
+        {
+            audioSettings = new AudioSettings();
+        }
+
         CreateParticleMaterial();
+        SetupParticleSystem();
         CreateColorGradient();
         SetupUI();
         GeneratePointCloud();
@@ -138,36 +164,39 @@ public class OscillatorPointCloud : MonoBehaviour
 
     void Update()
     {
-        if (isTransitioning)
+        if (!isTransitioning || oscillators == null) return;
+
+        float elapsed = Time.time - transitionStartTime;
+        float progress = Mathf.Clamp01(elapsed / transitionTime);  // Added clamp
+
+        if (progress >= 1f)
         {
-            float elapsed = Time.time - transitionStartTime;
-            float progress = elapsed / transitionTime;
-
-            if (progress >= 1f)
-            {
-                progress = 1f;
-                isTransitioning = false;
-            }
-
-            // Update positions and frequencies
-            foreach (var oscillator in oscillators)
-            {
-                oscillator.transitionProgress = progress;
-                oscillator.position = Vector3.Lerp(
-                    oscillator.startPosition,
-                    oscillator.targetPosition,
-                    progress
-                );
-
-                // Update frequency based on new height
-                oscillator.frequency = GetFrequencyForHeight(oscillator.position.y);
-
-                // Update game object position for spatial audio
-                oscillator.audioSource.transform.position = oscillator.position;
-            }
-
-            UpdateParticles();
+            progress = 1f;
+            isTransitioning = false;
         }
+
+        // Update positions and frequencies
+        foreach (var oscillator in oscillators)
+        {
+            oscillator.transitionProgress = progress;
+            oscillator.position = Vector3.Lerp(
+                oscillator.startPosition,
+                oscillator.targetPosition,
+                progress
+            );
+
+            // Update frequency with smooth transition
+            oscillator.frequency = Mathf.Lerp(
+                oscillator.startFrequency,
+                oscillator.targetFrequency,
+                progress
+            );
+
+            // Update game object position for spatial audio
+            oscillator.audioSource.transform.position = oscillator.position;
+        }
+
+        UpdateParticles();
     }
 
     //============================================================================================
@@ -205,8 +234,8 @@ public class OscillatorPointCloud : MonoBehaviour
         currentY -= spacing;
 
         // Create all parameter sliders
-        volumeSlider = CreateSlider("Master Volume", 0f, 1f, masterVolume, panelObj.transform, new Vector2(10, currentY), value => {
-            masterVolume = value;
+        volumeSlider = CreateSlider("Master Volume", 0f, 1f, audioSettings.masterVolume, panelObj.transform, new Vector2(10, currentY), value => {
+            audioSettings.masterVolume = value;
             UpdateVolume();
         });
         currentY -= spacing;
@@ -229,14 +258,14 @@ public class OscillatorPointCloud : MonoBehaviour
         });
         currentY -= spacing;
 
-        minDistanceSlider = CreateSlider("Min Distance", 0.1f, 5f, minDistance, panelObj.transform, new Vector2(10, currentY), value => {
-            minDistance = value;
+        minDistanceSlider = CreateSlider("Min Distance", 0.1f, 5f, audioSettings.minDistance, panelObj.transform, new Vector2(10, currentY), value => {
+            audioSettings.minDistance = value;
             UpdateSpatialSettings();
         });
         currentY -= spacing;
 
-        maxDistanceSlider = CreateSlider("Max Distance", 1f, 20f, maxDistance, panelObj.transform, new Vector2(10, currentY), value => {
-            maxDistance = value;
+        maxDistanceSlider = CreateSlider("Max Distance", 1f, 20f, audioSettings.maxDistance, panelObj.transform, new Vector2(10, currentY), value => {
+            audioSettings.maxDistance = value;
             UpdateSpatialSettings();
         });
         currentY -= spacing;
@@ -408,31 +437,47 @@ public class OscillatorPointCloud : MonoBehaviour
 
     private void UpdateVolume()
     {
+        if (oscillators == null) return;
         foreach (var oscillator in oscillators)
         {
-            if (oscillator.audioSource != null)
+            if (oscillator?.audioSource != null)
             {
-                oscillator.audioSource.volume = masterVolume;
+                oscillator.audioSource.volume = audioSettings.masterVolume * oscillator.amplitude;
             }
         }
     }
 
     private void UpdateFrequencies()
     {
+        if (oscillators == null) return;
         foreach (var oscillator in oscillators)
         {
-            oscillator.frequency = GetFrequencyForHeight(oscillator.position.y);
+            if (oscillator != null)
+            {
+                oscillator.frequency = GetFrequencyForHeight(oscillator.position.y);
+            }
         }
     }
 
     private void UpdateSpatialSettings()
     {
+        if (oscillators == null) return;
         foreach (var oscillator in oscillators)
         {
-            if (oscillator.audioSource != null)
+            if (oscillator?.audioSource != null)
             {
-                oscillator.audioSource.minDistance = minDistance;
-                oscillator.audioSource.maxDistance = maxDistance;
+                var source = oscillator.audioSource;
+                source.minDistance = audioSettings.minDistance;
+                source.maxDistance = audioSettings.maxDistance;
+                source.spatialBlend = audioSettings.spatialBlend;
+                source.spread = audioSettings.spread;
+                source.dopplerLevel = audioSettings.dopplerLevel;
+                
+                if (audioSettings.useCustomRolloff)
+                {
+                    source.rolloffMode = AudioRolloffMode.Custom;
+                    source.SetCustomCurve(AudioSourceCurveType.CustomRolloff, audioSettings.falloffCurve);
+                }
             }
         }
     }
@@ -441,29 +486,39 @@ public class OscillatorPointCloud : MonoBehaviour
     //  PARTICLE SYSTEM SETUP
     //============================================================================================
 
+    private void CreateParticleMaterial()
+    {
+        // For Meta Quest compatibility
+        particleMaterial = new Material(Shader.Find("Universal Render Pipeline/Particles/Unlit"));
+        if (particleMaterial.shader == null) {
+            Debug.LogWarning("URP Particle shader not found, using fallback");
+            particleMaterial = new Material(Shader.Find("Particles/Standard Unlit"));
+        }
+        particleMaterial.SetFloat("_Mode", 0);
+        particleMaterial.enableInstancing = true;
+    }
+    
     private void SetupParticleSystem()
     {
-        // Create and configure particle system for visual representation
         particleSystem = gameObject.AddComponent<ParticleSystem>();
         var main = particleSystem.main;
         main.loop = false;
         main.playOnAwake = false;
         main.maxParticles = 255;
         main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.useUnscaledTime = true;
 
-        // Configure particle renderer
+        var emission = particleSystem.emission;
+        emission.enabled = false;  // Disable automatic emission
+
         var renderer = particleSystem.GetComponent<ParticleSystemRenderer>();
         renderer.material = particleMaterial;
         renderer.renderMode = ParticleSystemRenderMode.Billboard;
-
+        renderer.enableGPUInstancing = true;
+        renderer.allowRoll = false;
+        renderer.sortMode = ParticleSystemSortMode.Distance;
+        
         particles = new ParticleSystem.Particle[255];
-    }
-
-    private void CreateParticleMaterial()
-    {
-        // Create material programmatically
-        particleMaterial = new Material(Shader.Find("Particles/Standard Unlit"));
-        particleMaterial.color = Color.white;
     }
 
     private void CreateColorGradient()
@@ -521,29 +576,32 @@ public class OscillatorPointCloud : MonoBehaviour
     private void CreateOscillatorPoint(int index, Vector3 position)
     {
         GameObject pointObj = new GameObject($"Oscillator_{index}");
-        pointObj.transform.parent = transform;
+        pointObj.transform.SetParent(transform, false);
+        pointObj.transform.position = position;
 
-        // Setup spatial audio source
         AudioSource source = pointObj.AddComponent<AudioSource>();
         ConfigureAudioSource(source);
 
-        var filter = pointObj.AddComponent<OscillatorFilter>();
-
+        float initialFrequency = GetFrequencyForHeight(position.y);
+        
         OscillatorPoint oscillator = new OscillatorPoint
         {
             position = position,
             targetPosition = position,
             startPosition = position,
-            frequency = GetFrequencyForHeight(position.y),
-            amplitude = 0.5f,
+            frequency = initialFrequency,
+            targetFrequency = initialFrequency,
+            startFrequency = initialFrequency,
+            amplitude = audioSettings.defaultAmplitude,
             audioSource = source,
             phase = 0,
             transitionProgress = 1f
         };
 
+        var filter = pointObj.AddComponent<OscillatorFilter>();
         filter.oscillator = oscillator;
+        source.Play();
         oscillators.Add(oscillator);
-        pointObj.transform.position = position;
     }
 
     //============================================================================================
@@ -552,22 +610,36 @@ public class OscillatorPointCloud : MonoBehaviour
 
     private void ConfigureAudioSource(AudioSource source)
     {
-        // Basic audio settings
+        // Basic settings
         source.playOnAwake = true;
         source.loop = true;
-        source.volume = masterVolume;
-
-        // Spatial audio configuration
-        source.spatialBlend = spatialBlend;       // 1 = full 3D audio
-        source.spatialize = true;                 // Enable HRTF spatialization
-        source.minDistance = minDistance;         // Distance for full volume
-        source.maxDistance = maxDistance;         // Distance for zero volume
+        source.volume = audioSettings.masterVolume;
+        source.mute = false;
+        source.enabled = true;
+        source.outputAudioMixerGroup = audioSettings.outputMixerGroup;
+        
+        // Meta XR Audio settings
+        source.spatialBlend = 1f;
+        source.spatialize = true;
+        source.spatializePostEffects = true;
+        source.minDistance = audioSettings.minDistance;
+        source.maxDistance = audioSettings.maxDistance;
         source.rolloffMode = AudioRolloffMode.Custom;
-        source.SetCustomCurve(AudioSourceCurveType.CustomRolloff, falloffCurve);
+        source.SetCustomCurve(AudioSourceCurveType.CustomRolloff, audioSettings.falloffCurve);
+        
+        source.priority = 128;
+        source.spread = 1f;
+        source.dopplerLevel = 0f;
+        source.reverbZoneMix = 1.0f;
+        source.bypassEffects = false;
+        source.bypassListenerEffects = false;
+        source.bypassReverbZones = false;
 
-        // Advanced spatial settings
-        source.spread = 0;                        // Focused point source
-        source.dopplerLevel = 0f;                 // No doppler effect for oscillators
+        // Only set spatializer if available
+        if (audioSettings.useMetaXRAudio && AudioSettings.GetSpatializerPluginNames().Contains("Meta XR Audio"))
+        {
+            source.spatializerName = "Meta XR Audio";
+        }
     }
 
     //============================================================================================
@@ -579,6 +651,8 @@ public class OscillatorPointCloud : MonoBehaviour
         for (int i = 0; i < oscillators.Count; i++)
         {
             var oscillator = oscillators[i];
+            if (oscillator == null) continue;
+            
             particles[i].position = oscillator.position;
             particles[i].startSize = pointSize;
 
@@ -600,23 +674,28 @@ public class OscillatorPointCloud : MonoBehaviour
     {
         // Draw min distance sphere
         Gizmos.color = new Color(0, 1, 0, 0.2f);
-        Gizmos.DrawWireSphere(transform.position, minDistance);
+        Gizmos.DrawWireSphere(transform.position, audioSettings.minDistance);
 
         // Draw max distance sphere
         Gizmos.color = new Color(1, 0, 0, 0.2f);
-        Gizmos.DrawWireSphere(transform.position, maxDistance);
+        Gizmos.DrawWireSphere(transform.position, audioSettings.maxDistance);
     }
 
     //============================================================================================
     //  PUBLIC METHODS FOR UI INTERACTION
     //============================================================================================
-
     public void RandomizeCloud()
     {
+        if (oscillators == null) return;
+        
         foreach (var oscillator in oscillators)
         {
+            if (oscillator?.audioSource == null) continue;  // Added null check
+            
             oscillator.startPosition = oscillator.position;
             oscillator.targetPosition = GetRandomPosition();
+            oscillator.startFrequency = oscillator.frequency;
+            oscillator.targetFrequency = GetFrequencyForHeight(oscillator.targetPosition.y);
             oscillator.transitionProgress = 0f;
         }
 
